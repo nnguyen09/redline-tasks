@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Plus,
@@ -9,8 +9,6 @@ import {
   CheckCircle2,
   Clock3,
   Trash2,
-  Flag,
-  Filter,
   CalendarDays,
   Sparkles,
   ListTodo,
@@ -18,6 +16,8 @@ import {
   Target,
   MoonStar,
   SunMedium,
+  Pencil,
+  RotateCcw,
 } from "lucide-react";
 import {
   Card,
@@ -64,6 +64,16 @@ type NewTask = {
   category: Category;
   priority: Priority;
   due: DueOption;
+};
+
+const STORAGE_KEY = "redline-tasks";
+
+const emptyNewTask: NewTask = {
+  title: "",
+  description: "",
+  category: "Work",
+  priority: "Medium",
+  due: "Today",
 };
 
 const initialTasks: Task[] = [
@@ -128,24 +138,42 @@ const priorityOrder: Record<Priority, number> = {
 const categories = ["All", "Work", "Personal", "Health", "Career"] as const;
 
 export default function AdvancedRedBlackTodoApp() {
-  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [query, setQuery] = useState<string>("");
   const [tab, setTab] = useState<TabOption>("all");
   const [category, setCategory] = useState<(typeof categories)[number]>("All");
   const [sortBy, setSortBy] = useState<SortOption>("priority");
   const [darkMode, setDarkMode] = useState<boolean>(true);
-  const [newTask, setNewTask] = useState<NewTask>({
-    title: "",
-    description: "",
-    category: "Work",
-    priority: "Medium",
-    due: "Today",
-  });
+  const [newTask, setNewTask] = useState<NewTask>(emptyNewTask);
+  const [editingId, setEditingId] = useState<number | null>(null);
+
+  useEffect(() => {
+    try {
+      const savedTasks = localStorage.getItem(STORAGE_KEY);
+      if (savedTasks) {
+        const parsed = JSON.parse(savedTasks) as Task[];
+        setTasks(Array.isArray(parsed) ? parsed : initialTasks);
+      } else {
+        setTasks(initialTasks);
+      }
+    } catch (error) {
+      console.error("Failed to load tasks:", error);
+      setTasks(initialTasks);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+    } catch (error) {
+      console.error("Failed to save tasks:", error);
+    }
+  }, [tasks]);
 
   const filteredTasks = useMemo(() => {
-    const list = [...tasks].filter((task) => {
-      const searchText = query.toLowerCase();
+    const searchText = query.toLowerCase();
 
+    const list = [...tasks].filter((task) => {
       const matchesQuery =
         task.title.toLowerCase().includes(searchText) ||
         task.description.toLowerCase().includes(searchText) ||
@@ -170,11 +198,9 @@ export default function AdvancedRedBlackTodoApp() {
       if (sortBy === "priority") {
         return priorityOrder[a.priority] - priorityOrder[b.priority];
       }
-
       if (sortBy === "status") {
         return Number(a.completed) - Number(b.completed);
       }
-
       return a.title.localeCompare(b.title);
     });
 
@@ -193,42 +219,83 @@ export default function AdvancedRedBlackTodoApp() {
   const addTask = () => {
     if (!newTask.title.trim()) return;
 
-    const taskToAdd: Task = {
-      id: Date.now(),
-      title: newTask.title,
-      description: newTask.description,
-      category: newTask.category,
-      priority: newTask.priority,
-      due: newTask.due,
-      completed: false,
-      tags: [newTask.category.toLowerCase()],
-      estimate: newTask.priority === "High" ? "45 min" : "30 min",
-    };
+    if (editingId !== null) {
+      setTasks((prev: Task[]) =>
+        prev.map((t: Task) =>
+          t.id === editingId
+            ? {
+                ...t,
+                title: newTask.title,
+                description: newTask.description,
+                category: newTask.category,
+                priority: newTask.priority,
+                due: newTask.due,
+              }
+            : t
+        )
+      );
+      setEditingId(null);
+    } else {
+      const taskToAdd: Task = {
+        id: Date.now(),
+        title: newTask.title,
+        description: newTask.description,
+        category: newTask.category,
+        priority: newTask.priority,
+        due: newTask.due,
+        completed: false,
+        tags: [newTask.category.toLowerCase()],
+        estimate: newTask.priority === "High" ? "45 min" : "30 min",
+      };
 
-    setTasks((prev) => [taskToAdd, ...prev]);
+      setTasks((prev: Task[]) => [taskToAdd, ...prev]);
+    }
 
-    setNewTask({
-      title: "",
-      description: "",
-      category: "Work",
-      priority: "Medium",
-      due: "Today",
-    });
+    setNewTask(emptyNewTask);
   };
 
   const toggleTask = (id: number) => {
-    setTasks((prev) =>
-      prev.map((task) =>
+    setTasks((prev: Task[]) =>
+      prev.map((task: Task) =>
         task.id === id ? { ...task, completed: !task.completed } : task
       )
     );
   };
 
   const deleteTask = (id: number) => {
-    setTasks((prev) => prev.filter((task) => task.id !== id));
+    setTasks((prev: Task[]) => prev.filter((task: Task) => task.id !== id));
+    if (editingId === id) {
+      setEditingId(null);
+      setNewTask(emptyNewTask);
+    }
   };
 
-  const themeShell = darkMode ? "bg-black text-white" : "bg-zinc-100 text-zinc-900";
+  const editTask = (task: Task) => {
+    setEditingId(task.id);
+    setNewTask({
+      title: task.title,
+      description: task.description,
+      category: task.category,
+      priority: task.priority,
+      due: task.due,
+    });
+  };
+
+  const clearAllTasks = () => {
+    setTasks([]);
+    setEditingId(null);
+    setNewTask(emptyNewTask);
+  };
+
+  const resetDefaultTasks = () => {
+    setTasks(initialTasks);
+    setEditingId(null);
+    setNewTask(emptyNewTask);
+  };
+
+  const themeShell = darkMode
+    ? "bg-black text-white"
+    : "bg-zinc-100 text-zinc-900";
 
   const panel = darkMode
     ? "border-red-950 bg-zinc-950/80"
@@ -455,6 +522,15 @@ export default function AdvancedRedBlackTodoApp() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              onClick={() => editTask(task)}
+                              className="hover:bg-zinc-900 hover:text-white"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+
+                            <Button
+                              variant="ghost"
+                              size="icon"
                               onClick={() => deleteTask(task.id)}
                               className="hover:bg-red-950/40 hover:text-red-400"
                             >
@@ -564,8 +640,33 @@ export default function AdvancedRedBlackTodoApp() {
                     onClick={addTask}
                     className="w-full bg-red-600 text-white hover:bg-red-500"
                   >
-                    <Plus className="mr-2 h-4 w-4" /> Add Task
+                    {editingId !== null ? (
+                      <Pencil className="mr-2 h-4 w-4" />
+                    ) : (
+                      <Plus className="mr-2 h-4 w-4" />
+                    )}
+                    {editingId !== null ? "Save Changes" : "Add Task"}
                   </Button>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={clearAllTasks}
+                      className="border-red-900 bg-transparent text-white hover:bg-red-950/40"
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" /> Clear All
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={resetDefaultTasks}
+                      className="border-zinc-800 bg-transparent text-white hover:bg-zinc-900"
+                    >
+                      <RotateCcw className="mr-2 h-4 w-4" /> Reset Defaults
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
 
@@ -627,17 +728,17 @@ export default function AdvancedRedBlackTodoApp() {
                     {
                       label: "High Priority Load",
                       value: Math.min(highPriorityCount * 25, 100),
-                      icon: Flag,
+                      icon: Flame,
                     },
                     {
                       label: "Tasks In Motion",
                       value: Math.min(activeCount * 20, 100),
-                      icon: Filter,
+                      icon: ListTodo,
                     },
                     {
                       label: "Execution Streak",
                       value: Math.max(progress, 18),
-                      icon: Flame,
+                      icon: CheckCircle2,
                     },
                   ].map((row) => (
                     <div
